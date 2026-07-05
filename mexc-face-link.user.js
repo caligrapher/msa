@@ -159,6 +159,20 @@
     showPanel();
   }
 
+  // DIAGNOSTIC MODE: let the iframe load so MEXC performs its parent→iframe
+  // handshake, and capture what the parent posts INTO the iframe. Set to true
+  // to go back to blanking the iframe (transfer mode).
+  const PREVENT_LOAD = false;
+
+  function logParentMsg(msg, targetOrigin) {
+    try {
+      const s = typeof msg === 'string' ? msg : JSON.stringify(msg);
+      log('parent→iframe', { targetOrigin, data: (s || '').slice(0, 1200) });
+      scanForShare(s, 'parent→iframe');
+      const m = s && s.match(TOKEN_RE); if (m) seenToken(m[0], 'parent→iframe');
+    } catch (e) {}
+  }
+
   (function patchIframeSrc() {
     try {
       const proto = HTMLIFrameElement.prototype;
@@ -170,7 +184,7 @@
           set(v) {
             if (typeof v === 'string' && SUMSUB_HOST_RE.test(v)) {
               this.__mflReal = v; onSumsubUrl(v, 'src-setter');
-              return d.set.call(this, 'about:blank');
+              return d.set.call(this, PREVENT_LOAD ? 'about:blank' : v);
             }
             return d.set.call(this, v);
           },
@@ -184,22 +198,51 @@
         if (this.tagName === 'IFRAME' && String(name).toLowerCase() === 'src'
             && typeof val === 'string' && SUMSUB_HOST_RE.test(val)) {
           this.__mflReal = val; onSumsubUrl(val, 'setAttribute');
-          return origSA.call(this, 'src', 'about:blank');
+          return origSA.call(this, 'src', PREVENT_LOAD ? 'about:blank' : val);
         }
       } catch (e) {}
       return origSA.apply(this, arguments);
     };
+
+    // Capture parent→iframe postMessage (the handshake that may carry the token).
+    try {
+      const cw = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow');
+      if (cw && cw.configurable && cw.get) {
+        Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
+          configurable: true, enumerable: cw.enumerable,
+          get() {
+            const real = cw.get.call(this);
+            if (!this.__mflReal || !real) return real;
+            if (this.__mflCwProxy && this.__mflCwFor === real) return this.__mflCwProxy;
+            const p = new Proxy(real, {
+              get(t, prop) {
+                if (prop === 'postMessage') {
+                  return function (msg, targetOrigin, transfer) {
+                    logParentMsg(msg, targetOrigin);
+                    return t.postMessage.apply(t, arguments);
+                  };
+                }
+                const v = t[prop];
+                return typeof v === 'function' ? v.bind(t) : v;
+              },
+            });
+            this.__mflCwProxy = p; this.__mflCwFor = real;
+            return p;
+          },
+        });
+      }
+    } catch (e) { log('patch_cw_err', String(e)); }
   })();
 
-  // Backup: if an iframe somehow slips through with a live sumsub src, blank it.
+  // Observer: just record (do not blank in diagnostic mode).
   const mo = new MutationObserver((muts) => {
     for (const mut of muts) for (const node of mut.addedNodes) {
       if (node.nodeType !== 1) continue;
       const ifr = node.tagName === 'IFRAME' ? node : node.querySelector && node.querySelector('iframe');
-      const raw = ifr && (ifr.__mflReal || ifr.getAttribute && ifr.getAttribute('src'));
+      const raw = ifr && (ifr.__mflReal || (ifr.getAttribute && ifr.getAttribute('src')));
       if (ifr && raw && SUMSUB_HOST_RE.test(raw) && raw.indexOf('about:blank') !== 0) {
         onSumsubUrl(raw, 'observer');
-        try { ifr.__mflReal = raw; ifr.setAttribute('src', 'about:blank'); } catch (e) {}
+        if (PREVENT_LOAD) { try { ifr.__mflReal = raw; ifr.setAttribute('src', 'about:blank'); } catch (e) {} }
       }
     }
   });
