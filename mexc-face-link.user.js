@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MEXC Face Verify → Phone Link
 // @namespace    https://github.com/caligrapher/msa
-// @version      2.0.0
+// @version      3.0.0
 // @description  Capture the Sumsub face-verification hand-off on MEXC risk control and turn it into a QR / link you can open on your phone. Includes a diagnostics dump.
 // @author       you
 // @match        https://*.mexc.com/*
@@ -146,24 +146,60 @@
     } catch (e) {}
   }, true);
 
-  // 5) iframe watcher.
+  // 5) The important one: intercept the iframe src BEFORE the browser loads it,
+  //    so the desktop never consumes the one-shot token. Record the real URL,
+  //    navigate the desktop iframe to about:blank instead. The phone then loads
+  //    the URL as the first (and only) consumer of the token.
+  function onSumsubUrl(url, source) {
+    if (!url || url === shareLink) return;
+    lastIframeSrc = url;
+    shareLink = url;
+    linkAt = Date.now();
+    log('sumsub_url', { source, url: url.slice(0, 120) + '…' });
+    showPanel();
+  }
+
+  (function patchIframeSrc() {
+    try {
+      const proto = HTMLIFrameElement.prototype;
+      const d = Object.getOwnPropertyDescriptor(proto, 'src');
+      if (d && d.set) {
+        Object.defineProperty(proto, 'src', {
+          configurable: true, enumerable: d.enumerable,
+          get() { return this.__mflReal != null ? this.__mflReal : d.get.call(this); },
+          set(v) {
+            if (typeof v === 'string' && SUMSUB_HOST_RE.test(v)) {
+              this.__mflReal = v; onSumsubUrl(v, 'src-setter');
+              return d.set.call(this, 'about:blank');
+            }
+            return d.set.call(this, v);
+          },
+        });
+      }
+    } catch (e) { log('patch_src_err', String(e)); }
+
+    const origSA = Element.prototype.setAttribute;
+    Element.prototype.setAttribute = function (name, val) {
+      try {
+        if (this.tagName === 'IFRAME' && String(name).toLowerCase() === 'src'
+            && typeof val === 'string' && SUMSUB_HOST_RE.test(val)) {
+          this.__mflReal = val; onSumsubUrl(val, 'setAttribute');
+          return origSA.call(this, 'src', 'about:blank');
+        }
+      } catch (e) {}
+      return origSA.apply(this, arguments);
+    };
+  })();
+
+  // Backup: if an iframe somehow slips through with a live sumsub src, blank it.
   const mo = new MutationObserver((muts) => {
     for (const mut of muts) for (const node of mut.addedNodes) {
       if (node.nodeType !== 1) continue;
       const ifr = node.tagName === 'IFRAME' ? node : node.querySelector && node.querySelector('iframe');
-      if (ifr && ifr.src && SUMSUB_HOST_RE.test(ifr.src)) {
-        lastIframeSrc = ifr.src;
-        log('iframe', { src: ifr.src });
-        scanForShare(ifr.src, 'iframe');
-        const m = ifr.src.match(TOKEN_RE); if (m) seenToken(m[0], 'iframe');
-        else showPanel();
-        // Neutralise the desktop session so the phone can claim the token.
-        if (KILL_DESKTOP && killCount < 3) {
-          killCount++;
-          try { ifr.src = 'about:blank'; } catch (e) {}
-          try { ifr.remove(); } catch (e) {}
-          log('killed_desktop_iframe', { n: killCount });
-        }
+      const raw = ifr && (ifr.__mflReal || ifr.getAttribute && ifr.getAttribute('src'));
+      if (ifr && raw && SUMSUB_HOST_RE.test(raw) && raw.indexOf('about:blank') !== 0) {
+        onSumsubUrl(raw, 'observer');
+        try { ifr.__mflReal = raw; ifr.setAttribute('src', 'about:blank'); } catch (e) {}
       }
     }
   });
