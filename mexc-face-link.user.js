@@ -17,7 +17,7 @@
   // ---- CONFIG ---------------------------------------------------------------
   // Where you host verify.html (GitHub Pages, Netlify, any static host).
   // Token is passed in the URL #hash (not sent to any server).
-  const VERIFY_URL = 'https://caligrapher.github.io/mexc-face-link/verify.html';
+  const VERIFY_URL = 'https://caligrapher.github.io/msa/verify.html';
   // Sumsub access tokens look like _act-... (prod) or _act-sbx-... (sandbox)
   const TOKEN_RE = /_act-(?:sbx-)?[A-Za-z0-9._-]{10,}/;
   // ---------------------------------------------------------------------------
