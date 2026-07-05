@@ -108,7 +108,11 @@
   let panel;
   function showPanel() {
     if (!document.body) { document.addEventListener('DOMContentLoaded', showPanel); return; }
-    const link = lastToken ? VERIFY_URL + '#token=' + encodeURIComponent(lastToken) : null;
+    // Primary: Sumsub's own standalone launcher (api.sumsub.com is always in the
+    // customer's domain allowlist, so it avoids the "Unknown url" error our own
+    // page hits). Token goes in the #hash.
+    const link = lastToken ? 'https://api.sumsub.com/idensic/l/#/' + encodeURIComponent(lastToken) : null;
+    const fallbackLink = lastToken ? VERIFY_URL + '#token=' + encodeURIComponent(lastToken) : null;
 
     if (!panel) {
       panel = document.createElement('div');
@@ -149,6 +153,13 @@
       panel.appendChild(copyTok);
 
       panel.appendChild(hint('Token is short-lived — scan within a couple of minutes.'));
+
+      if (fallbackLink) {
+        const fb = document.createElement('a');
+        fb.href = fallbackLink; fb.textContent = 'Fallback link (self-hosted)'; fb.target = '_blank';
+        fb.style.cssText = 'display:block;margin-top:6px;font-size:11px;color:#8a94a0;word-break:break-all';
+        panel.appendChild(fb);
+      }
     } else {
       panel.appendChild(hint('Sumsub verification detected but no token captured yet. Start the face check on MEXC; the token appears when the widget loads.'));
     }
