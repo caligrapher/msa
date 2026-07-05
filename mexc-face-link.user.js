@@ -25,6 +25,7 @@
   let lastToken = null;
   let lastIframeSrc = null;
   let shareLink = null;            // the real device-transfer link, if we spot it
+  let linkAt = 0;                  // when shareLink was captured (freshness)
   const diag = [];                 // diagnostics buffer
 
   function log(kind, data) {
@@ -39,6 +40,7 @@
     const m = str.match(SHARE_URL_RE);
     if (m && m[0] !== shareLink) {
       shareLink = m[0];
+      linkAt = Date.now();
       log('SHARE_LINK', { source, url: shareLink });
       showPanel();
     }
@@ -185,7 +187,18 @@
     panel.appendChild(h);
 
     if (shareLink) {
-      panel.appendChild(tag('✓ native transfer link found', '#00c6a2'));
+      panel.appendChild(tag('✓ link ready — scan FAST (token expires)', '#00c6a2'));
+      const age = el('div', ''); age.id = 'mfl-age';
+      age.style.cssText = 'margin:-4px 0 8px;font-size:12px;color:#e0a000';
+      panel.appendChild(age);
+      if (window.__mflTimer) clearInterval(window.__mflTimer);
+      window.__mflTimer = setInterval(() => {
+        const a = document.getElementById('mfl-age');
+        if (!a) { clearInterval(window.__mflTimer); return; }
+        const s = Math.round((Date.now() - linkAt) / 1000);
+        a.textContent = 'token age: ' + s + 's' + (s > 90 ? ' — likely stale, reload!' : '');
+        a.style.color = s > 90 ? '#ff5c5c' : '#e0a000';
+      }, 1000);
     } else if (primary) {
       panel.appendChild(tag('⚠ no native link yet — using raw token (may fail)', '#e0a000'));
     }
@@ -222,6 +235,10 @@
     });
     diagBtn.style.cssText += ';margin-top:10px;background:#243b2f;border-color:#2f5a44';
     panel.appendChild(diagBtn);
+
+    const reload = btn('⟳ Fresh token (reload)', () => location.reload());
+    reload.style.marginTop = '8px';
+    panel.appendChild(reload);
 
     const x = btn('✕ close', () => panel.remove());
     x.style.marginTop = '8px'; x.style.opacity = '.7';
