@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MEXC Face Verify → Phone Link
 // @namespace    https://github.com/caligrapher/msa
-// @version      3.0.0
+// @version      4.0.0
 // @description  Capture the Sumsub face-verification hand-off on MEXC risk control and turn it into a QR / link you can open on your phone. Includes a diagnostics dump.
 // @author       you
 // @match        https://*.mexc.com/*
@@ -15,7 +15,10 @@
   'use strict';
 
   // ---- CONFIG ---------------------------------------------------------------
-  const VERIFY_URL = 'https://caligrapher.github.io/msa/verify.html';
+  // Self-hosted proxy (worker/). Deploy once, paste your URL here.
+  const PROXY_URL = 'https://sumsub-proxy.YOUR_SUBDOMAIN.workers.dev/v';
+  const SPOOF_ORIGIN = 'mexc.com';           // Sumsub allowlist domain (no www)
+  const VERIFY_URL = 'https://caligrapher.github.io/msa/verify.html'; // fallback
   const TOKEN_RE = /_act-(?:sbx-)?[A-Za-z0-9._-]{10,}/;
   const SUMSUB_HOST_RE = /sumsub\.com|idensic|in\.sumsub/i;
   // Any URL that looks like a shareable / transfer / hand-off link:
@@ -162,7 +165,7 @@
   // DIAGNOSTIC MODE: let the iframe load so MEXC performs its parent→iframe
   // handshake, and capture what the parent posts INTO the iframe. Set to true
   // to go back to blanking the iframe (transfer mode).
-  const PREVENT_LOAD = false;
+  const PREVENT_LOAD = KILL_DESKTOP;
 
   function logParentMsg(msg, targetOrigin) {
     try {
@@ -250,14 +253,26 @@
 
   function safe(o) { try { return JSON.parse(JSON.stringify(o)); } catch (e) { return String(o); } }
 
+  function proxyLink(tok) {
+    if (!tok || !PROXY_URL || PROXY_URL.includes('YOUR_SUBDOMAIN')) return null;
+    return PROXY_URL + '#token=' + encodeURIComponent(tok)
+      + '&origin=' + encodeURIComponent(SPOOF_ORIGIN);
+  }
+
+  function copyText(text, btn) {
+    navigator.clipboard.writeText(text).then(() => {
+      if (btn) { const prev = btn.textContent; btn.textContent = '✓ Copied'; setTimeout(() => { btn.textContent = prev; }, 1500); }
+    });
+  }
+
   // ---- UI -------------------------------------------------------------------
   let panel;
   function showPanel() {
     if (!document.body) { document.addEventListener('DOMContentLoaded', showPanel); return; }
 
-    // Preferred target: a real Sumsub-generated share/transfer link. Fall back to
-    // the raw-token launcher only if we never saw one.
-    const primary = shareLink
+    const bypass = lastToken ? proxyLink(lastToken) : null;
+    const primary = bypass
+      || shareLink
       || (lastToken ? 'https://api.sumsub.com/idensic/l/#/' + encodeURIComponent(lastToken) : null);
     const fallback = lastToken ? VERIFY_URL + '#token=' + encodeURIComponent(lastToken) : null;
 
@@ -276,6 +291,15 @@
     h.style.cssText = 'font-weight:700;margin-bottom:8px;color:#00c6a2';
     panel.appendChild(h);
 
+    if (primary && lastToken) {
+      const oneBtn = btn('📱 Phone link (copy + open)', () => {
+        copyText(primary, oneBtn);
+        window.open(primary, '_blank');
+      });
+      oneBtn.style.cssText = 'display:block;width:100%;margin:8px 0;padding:12px;background:#00c6a2;color:#0e1116;border:none;border-radius:8px;cursor:pointer;font:700 14px system-ui,sans-serif';
+      panel.appendChild(oneBtn);
+    }
+
     if (shareLink) {
       panel.appendChild(tag('✓ link ready — scan FAST (token expires)', '#00c6a2'));
       const age = el('div', ''); age.id = 'mfl-age';
@@ -290,7 +314,7 @@
         a.style.color = s > 90 ? '#ff5c5c' : '#e0a000';
       }, 1000);
     } else if (primary) {
-      panel.appendChild(tag('⚠ no native link yet — using raw token (may fail)', '#e0a000'));
+      panel.appendChild(tag(bypass ? '✓ proxy link (any IP)' : '⚠ fallback link — set PROXY_URL for bypass', bypass ? '#00c6a2' : '#e0a000'));
     }
 
     if (primary) {

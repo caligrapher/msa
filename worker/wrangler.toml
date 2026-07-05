@@ -1,0 +1,7 @@
+name = "sumsub-proxy"
+main = "index.js"
+compatibility_date = "2024-01-01"
+
+# Set your allowlisted origin (must match Sumsub client config).
+# [vars]
+# SPOOF_ORIGIN = "https://www.mexc.com"

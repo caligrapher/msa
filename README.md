@@ -5,25 +5,45 @@ Grab the Sumsub face-verification token when MEXC risk control asks for a livene
 MEXC's KYC/liveness runs on Sumsub. The face widget is launched with a short-lived Sumsub **access token**. This tool captures that token in the browser and re-launches the same Sumsub WebSDK on your phone.
 
 ## Parts
-- `mexc-face-link.user.js` — Tampermonkey userscript. Runs on mexc.com, captures the token, shows a floating panel with QR + link.
-- `verify.html` — tiny page you host once. Reads the token from the link `#hash` and runs the Sumsub WebSDK.
+- `mexc-face-link.user.js` — Tampermonkey userscript. Captures the token, shows a panel with **one-click phone link** + QR.
+- `verify.html` — static fallback launcher (no origin spoof).
+- `worker/` — Cloudflare Worker proxy. Spoofs `Origin: mexc.com` so the SDK works from any IP/device.
 
 ## Setup (once)
-1. **Host `verify.html`.** Easiest: push it to a GitHub Pages repo, e.g. `https://<you>.github.io/mexc-face-link/verify.html`. Any static host (Netlify, Cloudflare Pages) works.
-2. **Edit the userscript.** Open `mexc-face-link.user.js`, set `VERIFY_URL` to your hosted URL.
-3. **Install userscript.** Tampermonkey → Create new script → paste → save. (Or drag the `.user.js` file into the Tampermonkey dashboard.)
+
+### 1. Deploy the proxy (recommended)
+```bash
+cd worker
+npm i -g wrangler   # or: npx wrangler login
+wrangler deploy
+```
+Copy the `*.workers.dev` URL (e.g. `https://sumsub-proxy.xxx.workers.dev/v`).
+
+Optional: set `SPOOF_ORIGIN` in `wrangler.toml` if not `https://www.mexc.com`.
+
+### 2. Configure the userscript
+Open `mexc-face-link.user.js`, set:
+```js
+const PROXY_URL = 'https://sumsub-proxy.xxx.workers.dev/v';
+const SPOOF_ORIGIN = 'mexc.com';
+```
+
+### 3. Install userscript
+Tampermonkey → Create new script → paste → save.
 
 ## Use
-1. On desktop, trigger the MEXC risk-control face verification as normal.
-2. When the Sumsub widget loads, the panel pops up bottom-right with a QR + link.
-3. Scan the QR with your phone (or copy the link). Complete the face check on the phone.
+1. On desktop, trigger MEXC face verification as normal.
+2. When the Sumsub widget loads, click **📱 Phone link (copy + open)** — one button, link copied + opened.
+3. Scan the QR or open the link on your phone. Complete the face check.
+
+The desktop iframe is blanked after capture so the token isn't consumed twice.
 
 ## Notes / limits
-- **Token is short-lived.** Sumsub access tokens expire (often a couple of minutes). Scan quickly. If it expired, the phone page says so — just re-trigger on desktop for a fresh token.
-- **No refresh on the phone.** The phone can't call MEXC's backend to refresh, so it reuses the one token. Fine for a single liveness pass.
-- **Nothing leaves your machine except to Sumsub.** The token travels in the URL `#hash`, which browsers don't send to the hosting server. `verify.html` talks only to Sumsub's own CDN/API.
-- **Direct iframe link** (shown in the panel) is a best-effort fallback; the hosted `verify.html` path is the reliable one.
-- If capture fails, open DevTools console and look for `[mexc-face-link]` logs; MEXC may have changed field/endpoint names — adjust `TOKEN_RE` or the sniffers.
+- **Token is short-lived.** Sumsub access tokens expire (often ~2 min). Click fast.
+- **Self-hosted only.** You run the proxy on your Cloudflare account — no third-party TG bot needed.
+- **Origin must match allowlist.** `SPOOF_ORIGIN` must be the exact domain MEXC registered with Sumsub (e.g. `mexc.com`).
+- **Nothing leaves your machine except to Sumsub** (via your proxy). Token travels in URL `#hash` (not sent to server logs).
+- If capture fails, open DevTools → `[mexc-face-link]` logs.
 
 ## Sources
 - [MEXC × Sumsub partnership](https://sumsub.com/newsroom/mexc-and-sumsub-partner-to-strengthen-global-compliance-and-combat-emerging-identity-fraud-risks/)
