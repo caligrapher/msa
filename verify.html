@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Face verification</title>
+<style>
+  html,body{margin:0;height:100%;background:#0e1116;color:#e6e6e6;font:15px/1.4 system-ui,sans-serif}
+  #msg{padding:20px;text-align:center}
+  #sumsub-websdk-container{min-height:100vh}
+  a{color:#4aa8ff}
+</style>
+</head>
+<body>
+<div id="msg">Loading verification…</div>
+<div id="sumsub-websdk-container"></div>
+
+<script src="https://static.sumsub.com/idensic/static/sns-websdk-builder.js"></script>
+<script>
+(function () {
+  function getToken() {
+    // Prefer #hash (never sent to a server); fall back to ?query.
+    var h = new URLSearchParams(location.hash.replace(/^#/, ''));
+    if (h.get('token')) return h.get('token');
+    var q = new URLSearchParams(location.search);
+    return q.get('token');
+  }
+
+  var msg = document.getElementById('msg');
+  var token = getToken();
+
+  if (!token) {
+    msg.innerHTML = 'No token in the link.<br>Grab a fresh link from the MEXC page and try again.';
+    return;
+  }
+  if (typeof snsWebSdk === 'undefined') {
+    msg.textContent = 'Could not load the Sumsub SDK. Check your connection and reload.';
+    return;
+  }
+
+  try {
+    var sdk = snsWebSdk
+      .init(token, function () {
+        // Can't refresh the token on this device — return the same one.
+        return Promise.resolve(token);
+      })
+      .withConf({ lang: 'en', theme: 'dark' })
+      .withOptions({ addViewportTag: true, adaptIframeHeight: true })
+      .on('idCheck.onStepCompleted', function (p) { console.log('step done', p); })
+      .on('idCheck.onApplicantStatusChanged', function (p) { console.log('status', p); })
+      .on('idCheck.onError', function (e) {
+        console.error('sumsub error', e);
+        msg.innerHTML = 'Verification error.<br>The token may have expired — get a new link from MEXC.';
+      })
+      .build();
+
+    sdk.launch('#sumsub-websdk-container');
+    msg.style.display = 'none';
+  } catch (e) {
+    console.error(e);
+    msg.textContent = 'Failed to start verification: ' + e;
+  }
+})();
+</script>
+</body>
+</html>
