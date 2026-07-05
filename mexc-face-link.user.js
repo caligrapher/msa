@@ -20,12 +20,16 @@
   const SUMSUB_HOST_RE = /sumsub\.com|idensic|in\.sumsub/i;
   // Any URL that looks like a shareable / transfer / hand-off link:
   const SHARE_URL_RE = /https?:\/\/[^\s"'<>]*(?:sumsub\.com|in\.sumsub)[^\s"'<>]*\/(?:l|link|websdk|mobile|handover|transfer)[^\s"'<>]*/i;
+  // Kill the desktop Sumsub iframe right after capturing its URL, so the phone
+  // is the SOLE session (Sumsub expires a second device on the same token).
+  const KILL_DESKTOP = true;
   // ---------------------------------------------------------------------------
 
   let lastToken = null;
   let lastIframeSrc = null;
   let shareLink = null;            // the real device-transfer link, if we spot it
   let linkAt = 0;                  // when shareLink was captured (freshness)
+  let killCount = 0;               // how many desktop iframes we've neutralised
   const diag = [];                 // diagnostics buffer
 
   function log(kind, data) {
@@ -153,6 +157,13 @@
         scanForShare(ifr.src, 'iframe');
         const m = ifr.src.match(TOKEN_RE); if (m) seenToken(m[0], 'iframe');
         else showPanel();
+        // Neutralise the desktop session so the phone can claim the token.
+        if (KILL_DESKTOP && killCount < 3) {
+          killCount++;
+          try { ifr.src = 'about:blank'; } catch (e) {}
+          try { ifr.remove(); } catch (e) {}
+          log('killed_desktop_iframe', { n: killCount });
+        }
       }
     }
   });
